@@ -64,40 +64,46 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 		ngx_log_stderr(0,"pdecode: %s",pdecode.data);
 	
 		ngx_memcpy(c,pdecode.data,pdecode.len);
-		clen = ngx_strlen(c);
+		clen = pdecode.len;
 		deAes(c,clen,key);         //aes算法解密
 		ngx_log_stderr(0,"c: %s",c);
 	
-		ngx_int_t i=0,j=0,templen=0;
-		u_char d[3][16];
+		ngx_int_t i=0,j=0,k=0,templen=0;
+		u_char d[3][16] = {0};
 		u_char *temp = c;
 		while(i < clen)             //对解密后的数据分段
 		{
-			if(c[i] == ' '||c[i] == 0)
+			if(c[i] == ' ')
 			{
-				ngx_log_stderr(0,"i: %d",i);
-				ngx_log_stderr(0,"temp: %s",temp);
-				templen = i - templen;
-				ngx_memcpy(d+j,temp,templen);
+				templen = i - k;
+				ngx_log_stderr(0,"templen : %d",templen);
+				ngx_memcpy(d[j],temp,templen);
 				j++;
 				templen++;
+				k = k + templen;
 				temp = temp + templen;
 			}
-			if(j == 2)
+			if(j == 3)
 				break;
 			i++;
 		}
-		ngx_log_stderr(0,"d[2]: %Xd",d[2]);
-		ngx_log_stderr(0,"requesttime: %Xd",requesttime);
+		ngx_log_stderr(0,"d[0]: %s",d+0);
+		ngx_log_stderr(0,"d[1]: %s",d+1);
+		ngx_log_stderr(0,"d[2]: %s",d+2);
+		ngx_log_stderr(0,"requesttime: %s",requesttime);
+		ngx_log_stderr(0,"d[2]: %d",ngx_strlen(d[2]));
+		ngx_log_stderr(0,"d[1]: %d",ngx_strlen(d[1]));
+		ngx_log_stderr(0,"d[0]: %d",ngx_strlen(d[0]));
+		ngx_log_stderr(0,"requesttime: %d",ngx_strlen(requesttime));
 	
-		if(ngx_strcmp(requesttime,d+2) != 0)  //对比请求时间
+		if(ngx_strcmp(requesttime,d[2]) == 0)  //对比请求时间
 		{
-			ngx_log_stderr(0,"requesttime error");
-			ngx_str_set(&response,"fail");
-		}else{
 			response.len = ngx_strlen(c);
 			response.data = ngx_alloc(response.len,r->pool->log);
 			ngx_memcpy(response.data,c,response.len);   //返回解密后的数据
+		}else{
+			ngx_log_stderr(0,"requesttime error");
+			ngx_str_set(&response,"fail");
 		}
 	}
 
