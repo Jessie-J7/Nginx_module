@@ -11,9 +11,17 @@ typedef struct{
 	u_char *data;
 	u_char *requesttime;
 	u_char key[33];
+	struct timeval start;
+	struct timeval end;
 }ngx_http_mytest_ctx_t;
 
-ngx_int_t deaes_data(ngx_http_request_t *r,u_char *c,u_char *data,u_char *requesttime,u_char *key);
+static ngx_int_t mytest_subrequest_post_handler(ngx_http_request_t *r, void *data, ngx_int_t rc);
+static ngx_int_t
+mytest_post_handler(ngx_http_request_t * r);
+static ngx_int_t mytest_subrequest_post_key_handler(ngx_http_request_t *r, void *data, ngx_int_t rc);
+static void
+mytest_post_key_handler(ngx_http_request_t * r);
+ngx_int_t deaes_data(ngx_http_request_t *r,u_char *data,u_char *requesttime,u_char *key);
 static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r);
 static char *ngx_http_mytest(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
@@ -65,6 +73,157 @@ ngx_http_mytest(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 	clcf->handler = ngx_http_mytest_handler;
 
 	return NGX_CONF_OK;
+}		
+static ngx_int_t mytest_subrequest_post_handler(ngx_http_request_t *r,void *data, ngx_int_t rc)
+{
+	ngx_http_request_t          *pr = r->parent;
+	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(pr, ngx_http_mytest_module);
+
+	pr->headers_out.status = r->headers_out.status;
+	if (r->headers_out.status == NGX_HTTP_OK)//解析json，取key
+	{
+		ngx_log_stderr(0,"data: %s",myctx->data);
+	}
+	pr->write_event_handler = (void*)mytest_post_handler;
+
+	return NGX_OK;
+}
+
+	static ngx_int_t
+mytest_post_handler(ngx_http_request_t * r)
+{
+	if (r->headers_out.status != NGX_HTTP_OK)
+	{
+		ngx_http_finalize_request(r, r->headers_out.status);
+		return NGX_ERROR;
+	}
+
+	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
+
+	if(ngx_strlen(myctx->key) == 0)
+	{
+		//没有key返回用户错误码
+		return NGX_ERROR;
+	}
+	else
+	{
+		ngx_int_t ret = deaes_data(r,myctx->data,myctx->requesttime,myctx->key);
+		if(ret == 0)
+		{
+			//ret等于0说明 requesttime相等。
+			ngx_http_post_subrequest_t *psr = ngx_palloc(r->pool, sizeof(ngx_http_post_subrequest_t));
+			if (psr == NULL)
+			{
+				return NGX_ERROR;
+			}
+			psr->handler = mytest_subrequest_post_key_handler;
+
+			psr->data = myctx;
+			ngx_str_t sub_prefix = ngx_string("/rest/index");
+			ngx_str_t sub_location;
+			sub_location.len = sub_prefix.len;
+			sub_location.data = ngx_palloc(r->pool, sub_location.len);
+			ngx_snprintf(sub_location.data, sub_location.len,
+					"%V", &sub_prefix);
+
+			ngx_http_request_t *sr;
+			ngx_int_t rc = ngx_http_subrequest(r, &sub_location, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
+			if (rc != NGX_OK)
+			{
+				return NGX_ERROR;
+			}
+			return NGX_DONE;
+		}
+		else
+		{
+			return NGX_ERROR;
+		}
+	}
+}
+
+static ngx_int_t mytest_subrequest_post_key_handler(ngx_http_request_t *r,void *data, ngx_int_t rc)
+{
+	//当前请求r是子请求，它的parent成员就指向父请求
+	ngx_http_request_t          *pr = r->parent;
+	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(pr, ngx_http_mytest_module);
+
+	pr->headers_out.status = r->headers_out.status;
+	if (r->headers_out.status == NGX_HTTP_OK)//取数据server_data，放入ctx
+	{
+		ngx_log_stderr(0,"key: %s",myctx->key);
+	}
+	pr->write_event_handler = mytest_post_key_handler;
+
+	return NGX_OK;
+}
+
+
+static void mytest_post_key_handler(ngx_http_request_t * r)
+{
+	if (r->headers_out.status != NGX_HTTP_OK)
+	{
+		ngx_http_finalize_request(r, r->headers_out.status);
+		return;
+	}	
+	//当前请求是父请求，直接取其上下文
+	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
+	u_char *p = ngx_alloc(4096,r->pool->log);
+	ngx_memzero(p,4096);
+	ngx_memcpy(p,"192.168.178.128 faith 121212",28);
+	ngx_int_t plen = ngx_strlen(p);
+	if(plen == 0){
+		ngx_log_stderr(0,"明文字符长度不为空！\n");
+		return;
+	}
+	ngx_int_t i;
+	ngx_int_t pstrlen = plen;
+	//	ngx_int_t psub = 16 - pstrlen % 16;
+	if(pstrlen % 16 != 0) {
+		plen = (plen / 16 + 1) * 16;
+		for(i=pstrlen;i<plen;i++)
+			p[i] = ' ';
+	}
+	aes(p,plen,myctx->key);
+	ngx_str_t pcur; 
+	pcur.len = plen;
+	pcur.data = ngx_alloc(pcur.len,r->pool->log);
+	ngx_memcpy(pcur.data,p,pcur.len);
+
+	ngx_str_t pencode;
+	pencode.len = ngx_base64_encoded_length(pcur.len);
+	pencode.data = ngx_alloc(pencode.len + 1,r->pool->log);
+	ngx_encode_base64(&pencode,&pcur);
+	ngx_str_t output_format = ngx_string("%V");
+
+	int bodylen = output_format.len + pencode.len - 2;
+	r->headers_out.content_length_n = bodylen;
+
+	ngx_log_stderr(0,"bodylen: %d",bodylen);
+	//在内存池上分配内存保存将要发送的包体
+	ngx_buf_t* b = ngx_create_temp_buf(r->pool, bodylen);
+	ngx_snprintf(b->pos, bodylen, (char*)output_format.data,
+			&pencode);
+	b->last = b->pos + bodylen;
+	b->last_buf = 1;
+
+	ngx_log_stderr(0,"b->pos: %s",b->pos);
+
+	ngx_chain_t out;
+	out.buf = b;
+	out.next = NULL;
+	static ngx_str_t type = ngx_string("text/plain; charset=GBK");
+	r->headers_out.content_type = type;
+	r->headers_out.status = NGX_HTTP_OK;
+
+	r->connection->buffered |= NGX_HTTP_WRITE_BUFFERED;
+	ngx_int_t ret=ngx_http_send_header(r);
+	ret=ngx_http_output_filter(r, &out);
+	
+	ngx_gettimeofday(&myctx->end);
+	ngx_int_t time = (myctx->end.tv_sec - myctx->start.tv_sec)*1000 
+				   + (myctx->end.tv_usec - myctx->start.tv_usec)/1000;
+	ngx_log_stderr(0,"time: %d",time);
+	ngx_http_finalize_request(r, ret);
 }
 static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 {
@@ -81,9 +240,7 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 		//将上下文设置到原始请求r中
 		ngx_http_set_ctx(r, myctx, ngx_http_mytest_module);
 	}
-	ngx_str_t type = ngx_string("text/plain");
-	ngx_str_t response;
-	response.len = 0;
+	ngx_gettimeofday(&myctx->start);
 
 	myctx->session = ngx_alloc(33,r->pool->log);
 	ngx_memzero(myctx->session,33);
@@ -101,52 +258,82 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 	u_char filename[] = {"/home/faith/ngx_test"};
 	read_file(r,filename,myctx->session,myctx->key);  //根据session，在文件中查找key
 
-	u_char *c = ngx_alloc(4096,r->pool->log);
-	ngx_memzero(c,4096);
 	if(ngx_strlen(myctx->key) == 0) //进入token
 	{
-		
+		// ngx_http_post_subrequest_t结构体会决定子请求的回调方法，参见5.4.1节
+		ngx_http_post_subrequest_t *psr = ngx_palloc(r->pool, sizeof(ngx_http_post_subrequest_t));
+		if (psr == NULL)
+		{
+			return NGX_HTTP_INTERNAL_SERVER_ERROR;
+		}
+
+		//设置子请求回调方法为mytest_subrequest_post_handler
+		psr->handler = mytest_subrequest_post_handler;
+
+		//data设为myctx上下文，这样回调mytest_subrequest_post_handler
+		//时传入的data参数就是myctx
+		psr->data = myctx;
+
+		ngx_str_t sub_prefix = ngx_string("/rest/index");
+		ngx_str_t sub_location;
+		sub_location.len = sub_prefix.len + r->args.len;
+		sub_location.data = ngx_palloc(r->pool, sub_location.len);
+		ngx_snprintf(sub_location.data, sub_location.len,
+				"%V", &sub_prefix);
+
+		//sr就是子请求
+		ngx_http_request_t *sr;
+		ngx_int_t rc = ngx_http_subrequest(r, &sub_location, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
+		if (rc != NGX_OK)
+		{
+			return NGX_ERROR;
+		}
+
+		return NGX_DONE;
 	}
 	else
 	{
-		ngx_int_t ret = deaes_data(r,c,myctx->data,myctx->requesttime,myctx->key);
+		ngx_int_t ret = deaes_data(r,myctx->data,myctx->requesttime,myctx->key);
 		if(ret == 0)
 		{
-			response.len = ngx_strlen(c);
-			response.data = ngx_alloc(response.len,r->pool->log);
-			ngx_memcpy(response.data,c,response.len);   //返回解密后的数据
+			ngx_log_stderr(0,"真实服务器");
+			ngx_http_post_subrequest_t *psr_key = ngx_palloc(r->pool, sizeof(ngx_http_post_subrequest_t));
+			if (psr_key == NULL)
+			{
+				return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			}
+			//ret等于0说明 requesttime相等。
+			psr_key->handler = mytest_subrequest_post_key_handler;
+
+			psr_key->data = myctx;
+			ngx_str_t sub_prefix = ngx_string("/rest/index");
+			ngx_str_t sub_location;
+			sub_location.len = sub_prefix.len;
+			sub_location.data = ngx_palloc(r->pool, sub_location.len);
+			ngx_snprintf(sub_location.data, sub_location.len,
+					"%V", &sub_prefix);
+
+			ngx_http_request_t *sr_key;
+			ngx_int_t rc = ngx_http_subrequest(r, &sub_location, NULL, &sr_key, psr_key, NGX_HTTP_SUBREQUEST_IN_MEMORY);
+			if (rc != NGX_OK)
+			{
+				return NGX_ERROR;
+			}
+			return NGX_DONE;
+		}
+		else
+		{
+			return NGX_ERROR;
 		}
 	}
-	r->headers_out.status = NGX_HTTP_OK;
-	r->headers_out.content_length_n = response.len;
-	r->headers_out.content_type = type;
-
-	ngx_int_t rc = ngx_http_send_header(r);
-	if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
-		return rc;
-	}
-
-	ngx_buf_t *b;
-	b = ngx_create_temp_buf(r->pool, response.len);
-	if (b == NULL) {
-		return NGX_HTTP_INTERNAL_SERVER_ERROR;
-	}
-
-	ngx_memcpy(b->pos, response.data, response.len);
-	b->last = b->pos + response.len;
-	b->last_buf = 1;
-
-	ngx_chain_t out;
-	out.buf = b;
-	out.next = NULL;
-
-	return ngx_http_output_filter(r, &out);
 }
-ngx_int_t deaes_data(ngx_http_request_t *r,u_char *c,u_char *data,u_char *requesttime,u_char *key)
+ngx_int_t deaes_data(ngx_http_request_t *r,u_char *data,u_char *requesttime,u_char *key)
 {
 	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
 	ngx_str_t pencode;   //编码数据
 	ngx_str_t pdecode;   //解码数据
+	u_char *c = ngx_alloc(4096,r->pool->log);
+	ngx_memzero(c,4096);
 
 	pencode.len = ngx_strlen(data);
 	pencode.data = ngx_alloc(pencode.len + 1,r->pool->log);
