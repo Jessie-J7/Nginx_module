@@ -549,7 +549,7 @@ void deAes(char *c, int clen, char *key) {
 
 	extendKey(key);//扩展密钥
 	int cArray[4][4];
-	for(int k = 0; k < clen; k += 32) {
+	for(int k = 0; k < clen; k += 16) {
 		convertToIntArray(c + k, cArray);
 
 

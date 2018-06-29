@@ -550,7 +550,7 @@ static ngx_int_t ngx_http_key_handler(ngx_http_request_t *r)
 	if(pstrlen % 16 != 0) {
 		plen = (plen / 16 + 1) * 16;
 		for(i=pstrlen;i<plen;i++)
-			p[i] = 4;
+			p[i] = ' ';
 	}
 	ngx_log_stderr(0,"p: %s",p);
 	ngx_log_stderr(0,"plen: %d",plen);
@@ -563,26 +563,26 @@ static ngx_int_t ngx_http_key_handler(ngx_http_request_t *r)
 	pcur.data = ngx_alloc(pcur.len,r->pool->log);
 	ngx_memcpy(pcur.data,p,pcur.len);
 	
-	ngx_log_stderr(0,"pcur: %V",pcur);
+	ngx_log_stderr(0,"pcur: %s",pcur.data);
 	
 	ngx_str_t pencode;
 	pencode.len = ngx_base64_encoded_length(pcur.len);
 	pencode.data = ngx_alloc(pencode.len + 1,r->pool->log);
 	ngx_encode_base64(&pencode,&pcur);
 
-	ngx_log_stderr(0,"pencode: %V",pencode);
+	ngx_log_stderr(0,"pencode: %s",pencode.data);
 
 	ngx_str_t pdecode;
 	pdecode.len = ngx_base64_decoded_length(pencode.len);
 	pdecode.data = ngx_alloc(pdecode.len + 1,r->pool->log);
 	ngx_decode_base64(&pdecode,&pencode);
 	
-	ngx_log_stderr(0,"pdecode: %V",pdecode);
+	ngx_log_stderr(0,"pdecode: %s",pdecode.data);
+	ngx_log_stderr(0,"pdecode: %d",pdecode.len);
 
-	u_char *c = ngx_alloc(1024,r->pool->log);
-	ngx_memzero(c,1024);
+	u_char *c = ngx_alloc(pdecode.len,r->pool->log);
 	ngx_memcpy(c,pdecode.data,pdecode.len);
-	ngx_int_t clen = ngx_strlen(c);
+	ngx_int_t clen = pdecode.len;
 	deAes(c,clen,key);
 
 	ngx_log_stderr(0,"c: %s",c);
@@ -633,7 +633,7 @@ ngx_http_key(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
 static ngx_command_t ngx_http_key_commands[] = {
 	{
-		ngx_string("key"),
+		ngx_string("mytest"),
 		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LMT_CONF|NGX_CONF_NOARGS,
 		ngx_http_key,
 		NGX_HTTP_LOC_CONF_OFFSET,
