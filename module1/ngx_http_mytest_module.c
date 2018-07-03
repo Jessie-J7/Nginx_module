@@ -7,12 +7,15 @@
 #include <ngx_http.h>
 #include "func.h"
 #include "cJSON.h"
+#include "queue.h"
+
 typedef struct{
 	u_char *session;
 	u_char *data;
 	u_char *requesttime;
 	u_char *ser_data;
 	u_char key[33];
+	link_queue q;
 	struct timeval start;
 	struct timeval end;
 }ngx_http_mytest_ctx_t;
@@ -153,6 +156,7 @@ static ngx_int_t mytest_subrequest_post_handler(ngx_http_request_t *r,void *data
 	u_char * buf = ngx_alloc(66,r->pool->log);
 	ngx_snprintf(buf,66,"%s %s\n",myctx->session,myctx->key);
 	ngx_log_stderr(0,"buf : %s",buf);
+	lseek(file->fd,0,SEEK_END);
 	ngx_write_fd(file->fd,buf,66);
 
 	pr->write_event_handler = (void*)mytest_post_handler;
@@ -177,6 +181,16 @@ static ngx_int_t mytest_post_handler(ngx_http_request_t * r)
 	}
 	else
 	{
+		queue_putLru(myctx->q,myctx->session,myctx->key);
+		link_node n = myctx->q->front;
+		if(!n)
+		{
+			while(n)
+			{
+				ngx_log_stderr(0,"session:%s",n->key);
+				n = n->next;
+			}
+		}
 		ngx_int_t ret = deaes_data(r,myctx->data,myctx->requesttime,myctx->key);
 		if(ret == 0)
 		{
@@ -325,6 +339,7 @@ static void mytest_post_key_handler(ngx_http_request_t * r)
 	ngx_log_stderr(0,"time: %d",time);
 	ngx_http_finalize_request(r, ret);
 }
+
 static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 {
 	//创建http上下文
@@ -355,9 +370,22 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 	ngx_str_t str3 = ngx_string("requesttime");
 	query_string(r,myctx->requesttime,str3);	 //获取requesttime
 
-	u_char filename[] = {"/home/faith/ngx_test"};
-	ngx_int_t flag = read_file(r,filename,myctx->session,myctx->key);  //根据session，在文件中查找key
+	ngx_int_t flag = queue_lru(myctx->q,myctx->session,myctx->key);
+	link_node n = myctx->q->front;
+	if(!n)
+	{
+		while(n)
+		{
+			ngx_log_stderr(0,"1session:%s",n->key);
+			n = n->next;
+		}
+	}
 
+	if(flag == -1)
+	{
+		u_char filename[] = {"/home/faith/ngx_test"};
+		flag = read_file(r,filename,myctx->session,myctx->key);  //根据session，在文件中查找key
+	}
 	if(flag == -1) //进入token
 	{
 		ngx_http_post_subrequest_t *psr = ngx_palloc(r->pool, sizeof(ngx_http_post_subrequest_t));
@@ -392,6 +420,16 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 	}
 	else
 	{
+		queue_putLru(myctx->q,myctx->session,myctx->key);
+		link_node n = myctx->q->front;
+		if(!n)
+		{
+			while(n)
+			{
+				ngx_log_stderr(0,"2session:%s",n->key);
+				n = n->next;
+			}
+		}
 		ngx_int_t ret = deaes_data(r,myctx->data,myctx->requesttime,myctx->key);
 		if(ret == 0)
 		{
@@ -474,7 +512,7 @@ ngx_int_t deaes_data(ngx_http_request_t *r,u_char *data,u_char *requesttime,u_ch
 	ngx_log_stderr(0,"d[1]: %s",d+1);
 	ngx_log_stderr(0,"d[2]: %s",d+2);
 
-	if(ngx_strcmp(requesttime,d[2]) == 0)  //对比请求时间
+	if(ngx_strcmp(requesttime,d[0]) == 0)  //对比请求时间
 	{
 		return 0;
 	}else{
@@ -521,7 +559,7 @@ ngx_int_t read_file(ngx_http_request_t *r,u_char *realfilename,u_char *session,u
 			ngx_log_stderr(0,"key : %s",key);
 			return 0;
 		}
-		filelen += 2 * (off_t)len;
+		filelen += 2 * (off_t)len;//每行的长度，从token存入session时，不足长度的补空格
 		lseek(file->fd,filelen,SEEK_SET);
 	}
 	return -1;
