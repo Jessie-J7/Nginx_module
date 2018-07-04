@@ -330,7 +330,7 @@ ngx_int_t aes(u_char *p, ngx_int_t plen, u_char *key){
 	ngx_int_t keylen = ngx_strlen(key);
 	if(!checkKeyLen(keylen)) {
 		ngx_log_stderr(0,"密钥字符长度错误！长度必须为16、24和32。当前长度为%d\n",keylen);
-		return NGX_ERROR;
+		return -1;
 	}
 
 	extendKey(key);//扩展密钥
@@ -482,12 +482,12 @@ ngx_int_t deAes(u_char *c, ngx_int_t clen, u_char *key) {
 	ngx_int_t keylen = ngx_strlen(key);
 	if(clen == 0 || clen % 16 != 0) {
 		ngx_log_stderr(0,"密文字符长度必须为16的倍数！现在的长度为%d",clen);
-		return NGX_ERROR;
+		return -1;
 	}
 
 	if(!checkKeyLen(keylen)) {
 		ngx_log_stderr(0,"密钥字符长度错误！长度必须为16、24和32。当前长度为%d",keylen);
-		return NGX_ERROR;
+		return -1;
 	}
 
 	extendKey(key);//扩展密钥
