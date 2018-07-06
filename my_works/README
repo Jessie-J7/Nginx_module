@@ -1,0 +1,26 @@
+安装Ubuntu 16.04 、nginx 1.14.0
+1.	编译
+在安装的nginx目录下运行
+./configure –prefix=/usr/local/nginx --add-module=/home/faith/nginx/slab_module --with-debug
+--prefix=PATH1  编译后的安装目录
+--add-module=PATH2  第三方模块目录
+2．更改objs/Makfile
+vim objs/Makefile 
+在objs/nginx：下编译的是原本模块和第三方模块的.o文件，在最后加上编译选项-lm（大概350行左右）目前只找到这一种方法
+3．编译拷贝
+make
+然后将objs/nginx拷贝到编译后的安装目录PATH1/sbin/nginx
+cp –rfp objs/nginx  /usr/local/nginx/sbin/nginx
+4．替换conf
+第三方模块中的nginx.conf替换PATH1/conf/nginx.conf，更改nginx.conf中要访问的文件名，事先创建好的文件，nginx的宏不太会用，也可能是当前执行程序的用户权限问题。
+5．运行nginx
+./nginx  运行
+./nginx –s reload 重置   重置slab共享缓存池不会清空
+./nginx –s stop 结束
+6．请求
+请求固定格式，session32位随机字符串，data aes-256-CRC,14轮循环加密，base64编码字符串，requesttime请求时间。加密秘钥是32位随机字符串。
+目前配置的域名和location是 localhost/query
+Data加密前数据为：121212 faith 192.168.178.128（请求时间，设备号，ip空格分割）
+加密秘钥为：5e5d39f6d03605f5dcfd0d6100944a89
+localhost/query?session=e3eb0a1df437f3f97a64aca5952c8ea0&data=OV8cv75M6AF2ds0L9UOR+4o3XGfk5EPEbh/lmA7Cgnw=&requesttime=121212
+
