@@ -10,6 +10,14 @@
 #include "ngx_util.h"
 
 static ngx_command_t ngx_http_mytest_commands[] = {
+    { 
+	  ngx_string("filename"),
+      NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+	  NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_mytest_loc_conf_t,filename),
+      NULL
+	},
 	{
 		ngx_string("mytest"),
 		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LMT_CONF|NGX_CONF_NOARGS,
@@ -36,7 +44,7 @@ static ngx_http_module_t ngx_http_mytest_module_ctx = {
 	NULL,
 	NULL,
 	NULL,
-	NULL,
+	ngx_http_mytest_create_loc_conf,
 	NULL
 };
 
@@ -133,6 +141,18 @@ void* ngx_http_mytest_create_main_conf(ngx_conf_t* cf) {
     mycf->shmsize = -1;
     return mycf;
 }
+void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf) {
+    ngx_http_mytest_loc_conf_t* mycf;
+
+    mycf = (ngx_http_mytest_loc_conf_t*)ngx_pcalloc(cf->pool, sizeof(ngx_http_mytest_loc_conf_t));
+    if (mycf == NULL) {
+        return NULL;
+    }
+
+	mycf->filename.len = 0;
+	mycf->filename.data = NULL;
+    return mycf;
+}
 
 char * ngx_http_mytest(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
@@ -184,6 +204,7 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 		return NGX_ERROR;
 
     ngx_http_mytest_conf_t* conf = (ngx_http_mytest_conf_t*)ngx_http_get_module_main_conf(r, ngx_http_mytest_module);
+    ngx_http_mytest_loc_conf_t* cmlf = (ngx_http_mytest_loc_conf_t*)ngx_http_get_module_loc_conf(r, ngx_http_mytest_module);
 
 	size_t len = ngx_strlen(myctx->session); 
     uint32_t hash = ngx_crc32_short(myctx->session,len);
@@ -192,28 +213,38 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
     ngx_shmtx_lock(&conf->shpool->mutex);
     ngx_int_t rc = ngx_http_mytest_lookup(r, conf, hash, myctx->session,myctx->key,len);
     ngx_shmtx_unlock(&conf->shpool->mutex);
-
 	if(rc != NGX_DECLINED)
 	{
 		return NGX_ERROR;
 	}
 	if(ngx_strlen(myctx->key) == 0)//缓存没有
 	{
-		u_char filename[] = {"/home/faith/ngx_test"};
+		//u_char filename[] = {"/home/faith/ngx_test"};
+		u_char *filename = ngx_palloc(r->pool,cmlf->filename.len);
+		ngx_memzero(filename,cmlf->filename.len);
+		ngx_memcpy(filename,cmlf->filename.data,cmlf->filename.len);
+		ngx_log_stderr(0,"filename: %s",filename);
+		myctx->filename = ngx_palloc(r->pool,ngx_strlen(filename));
+		ngx_memzero(myctx->filename,ngx_strlen(filename));
+		ngx_memcpy(myctx->filename,filename,ngx_strlen(filename));
+		ngx_log_stderr(0,"myctx->filename: %s",myctx->filename);
 		ret = read_file(r,filename,myctx->session,myctx->key);  //根据session，在文件中查找key
 		len = ngx_strlen(myctx->session); 
 		size_t key_len = ngx_strlen(myctx->key); 
 	    hash = ngx_crc32_short(myctx->session, len);
 		ngx_log_stderr(0,"data_local: %s",myctx->session);
 	
-	    ngx_shmtx_lock(&conf->shpool->mutex);
-	    ngx_int_t rc = ngx_http_mytest_insert(r, conf, hash, myctx->session,myctx->key,len,key_len);
-	    ngx_shmtx_unlock(&conf->shpool->mutex);
-		if(rc != NGX_DECLINED)
+		if(ngx_strlen(myctx->key) != 0)//文件有
 		{
-			return NGX_ERROR;
+		    ngx_shmtx_lock(&conf->shpool->mutex);
+		    ngx_int_t rc = ngx_http_mytest_insert(r, conf, hash, myctx->session,myctx->key,len,key_len);
+		    ngx_shmtx_unlock(&conf->shpool->mutex);
+			if(rc != NGX_DECLINED)
+			{
+				return NGX_ERROR;
+			}
+			ngx_log_stderr(0,"key: %s",myctx->key);
 		}
-		ngx_log_stderr(0,"key: %s",myctx->key);
 	}
 	if(ret == -1) //文件没有，进入token
 	{
@@ -335,13 +366,13 @@ ngx_int_t mytest_post_handler(ngx_http_request_t * r)
 		return NGX_ERROR;
 	}
 
-	u_char filename[] = {"/home/faith/ngx_test"};
 	//写入文件末尾
+	ngx_log_stderr(0,"myctx->filename: %s",myctx->filename);
 	ngx_file_t *file;
 	file = ngx_palloc(r->pool,sizeof(ngx_file_t));
-	file->fd = ngx_open_file(filename,NGX_FILE_RDWR,NGX_FILE_CREATE_OR_OPEN,0644);
+	file->fd = ngx_open_file(myctx->filename,NGX_FILE_RDWR,NGX_FILE_CREATE_OR_OPEN,0664);
 	if(file->fd < 0){
-		ngx_log_stderr(0,"%s failed",filename);
+		ngx_log_stderr(0,"%V failed",myctx->filename);
 		return NGX_ERROR;
 	}
 	//固定长度写入文件，不足补空格，方便文件的读取，方便加入设备号等其他参数

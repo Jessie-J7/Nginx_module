@@ -101,7 +101,7 @@ ngx_int_t read_file(ngx_http_request_t *r,u_char *realfilename,u_char *session,u
 	ngx_file_info_t fi;
 
 	file = ngx_palloc(r->pool,sizeof(ngx_file_t));
-	file->fd = ngx_open_file(realfilename,NGX_FILE_RDWR,NGX_FILE_OPEN,0);
+	file->fd = ngx_open_file(realfilename,NGX_FILE_RDWR,NGX_FILE_CREATE_OR_OPEN,0664);
 	if(file->fd < 0){
 		ngx_log_stderr(0,"%s failed",realfilename);
 		return NGX_ERROR;

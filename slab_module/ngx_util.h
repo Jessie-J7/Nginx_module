@@ -12,6 +12,7 @@ typedef struct{
 	u_char *data;
 	u_char *requesttime;
 	u_char *ser_data;
+	u_char *filename;
 	u_char key[33];
 	ngx_msec_t start;
 	ngx_msec_t end;
@@ -38,9 +39,14 @@ typedef struct {
     ngx_http_mytest_shm_t* sh;
 } ngx_http_mytest_conf_t;
 
+typedef struct {
+    ngx_str_t filename;
+} ngx_http_mytest_loc_conf_t;
+
 ngx_int_t ngx_http_mytest_init(ngx_conf_t* cf);
 char * ngx_http_mytest_createmem(ngx_conf_t* cf, ngx_command_t* cmd, void* conf); 
 void* ngx_http_mytest_create_main_conf(ngx_conf_t* cf);
+void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf);
 
 ngx_int_t ngx_http_mytest_lookup(ngx_http_request_t* r,ngx_http_mytest_conf_t* conf,ngx_uint_t hash, u_char* data,u_char *key,size_t len); 
 ngx_int_t ngx_http_mytest_insert(ngx_http_request_t* r,ngx_http_mytest_conf_t* conf,ngx_uint_t hash, u_char* data,u_char *key, size_t len,size_t key_len); 
