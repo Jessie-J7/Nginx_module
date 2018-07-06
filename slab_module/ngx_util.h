@@ -13,8 +13,8 @@ typedef struct{
 	u_char *requesttime;
 	u_char *ser_data;
 	u_char key[33];
-	struct timeval start;
-	struct timeval end;
+	ngx_msec_t start;
+	ngx_msec_t end;
 }ngx_http_mytest_ctx_t;
 
 typedef struct {
@@ -22,8 +22,8 @@ typedef struct {
     ngx_queue_t queue;        
     size_t len;             
 	size_t key_len;
-    u_char data[1];         
-    u_char key[1];         
+    u_char data[33];         
+    u_char key[33];         
 } ngx_http_mytest_node_t;
 
 typedef struct {

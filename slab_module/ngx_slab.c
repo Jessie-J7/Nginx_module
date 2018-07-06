@@ -74,8 +74,9 @@ ngx_int_t ngx_http_mytest_lookup(ngx_http_request_t* r,ngx_http_mytest_conf_t* c
         }
         lr = (ngx_http_mytest_node_t*)&node->data;
 		ngx_log_stderr(0,"data_rtree: %s",lr->data);
-        ngx_int_t rc = ngx_memn2cmp(data, lr->data, len,lr->len);
+        ngx_int_t rc = ngx_strncmp(data, lr->data, lr->len);
         if (rc == 0) {
+			ngx_log_stderr(0,"lr->key: %s",lr->key);
 			ngx_memcpy(key,lr->key,lr->key_len);
             ngx_queue_remove(&lr->queue);
             ngx_queue_insert_head(&conf->sh->queue, &lr->queue);
@@ -83,6 +84,7 @@ ngx_int_t ngx_http_mytest_lookup(ngx_http_request_t* r,ngx_http_mytest_conf_t* c
         }
         node = rc < 0? node->left : node->right;
     }
+	ngx_log_stderr(0,"key: %s",key);
     return NGX_DECLINED;    
 }
 
@@ -110,7 +112,8 @@ ngx_int_t ngx_http_mytest_insert(ngx_http_request_t* r,ngx_http_mytest_conf_t* c
 	lr->key_len = key_len;
     ngx_memcpy(lr->data, data, len);
     ngx_memcpy(lr->key,key,key_len);
-	ngx_log_stderr(0,"data_slab: %s",lr->data);
+	ngx_log_stderr(0,"data_slab: %s %d",lr->data,lr->len);
+	ngx_log_stderr(0,"lr->key: %s",lr->key);
 
     ngx_rbtree_insert(&conf->sh->rbtree, node);
     ngx_queue_insert_head(&conf->sh->queue, &lr->queue);

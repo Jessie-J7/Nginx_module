@@ -105,7 +105,7 @@ char * ngx_http_mytest_createmem(ngx_conf_t* cf, ngx_command_t* cmd, void* conf)
 
     shm_zone->init = ngx_http_mytest_shm_init;
     shm_zone->data = mconf;
-    return (char*)NGX_CONF_OK;
+    return NGX_CONF_OK;
 }
 
 ngx_int_t ngx_http_mytest_init(ngx_conf_t* cf)
@@ -161,7 +161,8 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 		//将上下文设置到原始请求r中
 		ngx_http_set_ctx(r, myctx, ngx_http_mytest_module);
 	}
-	ngx_gettimeofday(&myctx->start);//起始时间
+	ngx_time_t *tp = ngx_timeofday();//起始时间
+	myctx->start = (ngx_msec_t)(tp->sec *1000 + tp->msec);
 
 	myctx->session = ngx_palloc(r->pool,33);
 	ngx_memzero(myctx->session,33);
@@ -191,6 +192,7 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
     ngx_shmtx_lock(&conf->shpool->mutex);
     ngx_int_t rc = ngx_http_mytest_lookup(r, conf, hash, myctx->session,myctx->key,len);
     ngx_shmtx_unlock(&conf->shpool->mutex);
+
 	if(rc != NGX_DECLINED)
 	{
 		return NGX_ERROR;
@@ -211,6 +213,7 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 		{
 			return NGX_ERROR;
 		}
+		ngx_log_stderr(0,"key: %s",myctx->key);
 	}
 	if(ret == -1) //文件没有，进入token
 	{
@@ -473,8 +476,9 @@ ngx_int_t mytest_post_real_handler(ngx_http_request_t * r)
 	out.buf = b;
 	out.next = NULL;
 
-	ngx_gettimeofday(&myctx->end);//结束时间
-	ngx_int_t time = (myctx->end.tv_sec - myctx->start.tv_sec)*1000 + (myctx->end.tv_usec - myctx->start.tv_usec)/1000;
+	ngx_time_t *tp = ngx_timeofday();//起始时间
+	myctx->end = (ngx_msec_t)(tp->sec *1000 + tp->msec);
+	ngx_msec_t time = myctx->end - myctx->start;
 	ngx_log_stderr(0,"time: %d",time);
 	
 	static ngx_str_t type = ngx_string("text/plain; charset=GBK");
