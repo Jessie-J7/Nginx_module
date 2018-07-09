@@ -11,12 +11,12 @@
 
 static ngx_command_t ngx_http_mytest_commands[] = {
     { 
-	  ngx_string("filename"),
-      NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
-      ngx_conf_set_str_slot,
-	  NGX_HTTP_LOC_CONF_OFFSET,
-      offsetof(ngx_http_mytest_loc_conf_t,filename),
-      NULL
+		ngx_string("filename"),//从location配置中获取文件名
+	    NGX_HTTP_LOC_CONF | NGX_CONF_TAKE1,
+	    ngx_conf_set_str_slot,
+		NGX_HTTP_LOC_CONF_OFFSET,
+	    offsetof(ngx_http_mytest_loc_conf_t,filename),
+	    NULL
 	},
 	{
 		ngx_string("mytest"),
@@ -27,12 +27,12 @@ static ngx_command_t ngx_http_mytest_commands[] = {
 		NULL
 	},
     { 
-	  ngx_string("test_slab"),
-      NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
-      ngx_http_mytest_createmem,
-      0,
-      0,
-      NULL
+		ngx_string("test_slab"),//从main配置中获取共享内存大小
+	    NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+	    ngx_http_mytest_createmem,
+	    0,
+	    0,
+	    NULL
 	},
 	ngx_null_command
 };
@@ -62,7 +62,7 @@ ngx_module_t ngx_http_mytest_module = {
 	NULL,
 	NGX_MODULE_V1_PADDING
 };
-
+//共享内存初始化回调函数
 ngx_int_t ngx_http_mytest_shm_init(ngx_shm_zone_t* shm_zone, void* data)
 {
 	ngx_http_mytest_conf_t* conf =(ngx_http_mytest_conf_t*)shm_zone->data;
@@ -92,25 +92,26 @@ ngx_int_t ngx_http_mytest_shm_init(ngx_shm_zone_t* shm_zone, void* data)
     ngx_sprintf(conf->shpool->log_ctx, " in mytest \"%V\"%Z", &shm_zone->shm.name);
     return NGX_OK;
 }
-
+//共享内存初始化
 char * ngx_http_mytest_createmem(ngx_conf_t* cf, ngx_command_t* cmd, void* conf) 
 {
     ngx_http_mytest_conf_t* mconf = (ngx_http_mytest_conf_t*)conf;
     ngx_str_t name = ngx_string("test_slab_shm");
     ngx_str_t* value = (ngx_str_t*)cf->args->elts;
 
+	//内存大小
     mconf->shmsize = ngx_parse_size(&value[1]);
     if (mconf->shmsize == (ssize_t)NGX_ERROR || mconf->shmsize == 0) 
 	{
         return (char*)NGX_ERROR;
     }
-
+	//准备分配内存，在解析完配置之后执行
     ngx_shm_zone_t* shm_zone = ngx_shared_memory_add(cf, &name, mconf->shmsize,&ngx_http_mytest_module);
     if (shm_zone == NULL)
 	{
         return (char*)NGX_CONF_ERROR;
     }
-
+    //成功分配内存的回调函数
     shm_zone->init = ngx_http_mytest_shm_init;
     shm_zone->data = mconf;
     return NGX_CONF_OK;
@@ -126,7 +127,7 @@ ngx_int_t ngx_http_mytest_init(ngx_conf_t* cf)
         return NGX_ERROR;
     }
 
-    *h = ngx_http_mytest_handler;
+    *h = ngx_http_mytest_handler;//将main配置下的信息，挂载到content handler执行
     return NGX_OK;
 }
 
@@ -138,7 +139,7 @@ void* ngx_http_mytest_create_main_conf(ngx_conf_t* cf) {
         return NULL;
     }
 
-    mycf->shmsize = -1;
+    mycf->shmsize = -1; 
     return mycf;
 }
 void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf) {
@@ -166,7 +167,7 @@ char * ngx_http_mytest(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 //不能在handler中创建两个子请求，因为子请求是异步执行，不管token有没有验证成功，都会反向代理到真实服务器
-ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
+ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求content handler
 {
 	//创建http上下文
 	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
@@ -203,9 +204,11 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 	if(ret == -1)
 		return NGX_ERROR;
 
+	//获取main，location下的配置信息
     ngx_http_mytest_conf_t* conf = (ngx_http_mytest_conf_t*)ngx_http_get_module_main_conf(r, ngx_http_mytest_module);
     ngx_http_mytest_loc_conf_t* cmlf = (ngx_http_mytest_loc_conf_t*)ngx_http_get_module_loc_conf(r, ngx_http_mytest_module);
 
+	//session哈希，进入共享内存查找
 	size_t len = ngx_strlen(myctx->session); 
     uint32_t hash = ngx_crc32_short(myctx->session,len);
 	ngx_log_stderr(0,"data_args: %s",myctx->session);
@@ -217,9 +220,11 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 	{
 		return NGX_ERROR;
 	}
-	if(ngx_strlen(myctx->key) == 0)//缓存没有
+	if(ngx_strlen(myctx->key) == 0)//缓存没有,进入文件查找
 	{
 		//u_char filename[] = {"/home/faith/ngx_test"};
+		//location下的配置信息，只有在content handler中才能使用，
+		//将配置信息，保存在上下文中，对于结构体指针给结构体指针赋值的问题，还需要再研究
 		u_char *filename = ngx_palloc(r->pool,cmlf->filename.len);
 		ngx_memzero(filename,cmlf->filename.len);
 		ngx_memcpy(filename,cmlf->filename.data,cmlf->filename.len);
@@ -228,14 +233,14 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 		ngx_memzero(myctx->filename,ngx_strlen(filename));
 		ngx_memcpy(myctx->filename,filename,ngx_strlen(filename));
 		ngx_log_stderr(0,"myctx->filename: %s",myctx->filename);
-		ret = read_file(r,filename,myctx->session,myctx->key);  //根据session，在文件中查找key
-		len = ngx_strlen(myctx->session); 
-		size_t key_len = ngx_strlen(myctx->key); 
-	    hash = ngx_crc32_short(myctx->session, len);
-		ngx_log_stderr(0,"data_local: %s",myctx->session);
-	
-		if(ngx_strlen(myctx->key) != 0)//文件有
+
+		ret = read_file(r,myctx->filename,myctx->session,myctx->key);  //根据session，在文件中查找key
+		if(ret == 0)//将key加入共享内存
 		{
+			len = ngx_strlen(myctx->session); 
+			size_t key_len = ngx_strlen(myctx->key); 
+		    hash = ngx_crc32_short(myctx->session, len);
+			ngx_log_stderr(0,"data_local: %s",myctx->session);
 		    ngx_shmtx_lock(&conf->shpool->mutex);
 		    ngx_int_t rc = ngx_http_mytest_insert(r, conf, hash, myctx->session,myctx->key,len,key_len);
 		    ngx_shmtx_unlock(&conf->shpool->mutex);
@@ -245,8 +250,9 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 			}
 			ngx_log_stderr(0,"key: %s",myctx->key);
 		}
-	}
-	if(ret == -1) //文件没有，进入token
+	}	
+	//文件没有，进入token
+	if(ngx_strlen(myctx->key) == 0)
 	{
 		ngx_http_post_subrequest_t *psr = ngx_palloc(r->pool, sizeof(ngx_http_post_subrequest_t));
 		if (psr == NULL)
@@ -262,9 +268,9 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 		ngx_str_t sub_location;
 		sub_location.len = sub_prefix.len;
 		sub_location.data = ngx_palloc(r->pool, sub_location.len);
-		ngx_snprintf(sub_location.data, sub_location.len,
-				"%V", &sub_prefix);
+		ngx_snprintf(sub_location.data, sub_location.len,"%V", &sub_prefix);
 
+		//创建子请求，反向代理token
 		ngx_http_request_t *sr;
 		ngx_int_t rc = ngx_http_subrequest(r, &sub_location, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
 		if (rc != NGX_OK)
@@ -276,7 +282,8 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 	}
 	else //在文件中找到key
 	{
-		ngx_int_t ret = deaes_data(r,myctx->data,myctx->requesttime,myctx->key);//解密data，并对比请求时间
+		//解密data，并对比请求时间
+		ngx_int_t ret = deaes_data(r,myctx->data,myctx->requesttime,myctx->key);
 		if(ret == 0)
 		{
 			ngx_log_stderr(0,"真实服务器");
@@ -294,6 +301,7 @@ ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)//原始请求
 			sub_location.data = ngx_palloc(r->pool, sub_location.len);
 			ngx_snprintf(sub_location.data, sub_location.len,"%V", &sub_prefix);
 
+			//创建子请求，反向代理真实服务器
 			ngx_http_request_t *sr_real;
 			ngx_int_t rc = ngx_http_subrequest(r, &sub_location, NULL, &sr_real, psr_real, NGX_HTTP_SUBREQUEST_IN_MEMORY);
 			if (rc != NGX_OK)
@@ -351,6 +359,7 @@ ngx_int_t mytest_post_handler(ngx_http_request_t * r)
 	}
 
 	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
+	//创建子请求时，会重新执行rewrite phase阶段，重新读取main下的配置信息。
     ngx_http_mytest_conf_t* conf = (ngx_http_mytest_conf_t*)ngx_http_get_module_main_conf(r, ngx_http_mytest_module);
 
 	size_t len = ngx_strlen(myctx->session); 
@@ -402,9 +411,9 @@ ngx_int_t mytest_post_handler(ngx_http_request_t * r)
 		ngx_str_t sub_location;
 		sub_location.len = sub_prefix.len;
 		sub_location.data = ngx_palloc(r->pool, sub_location.len);
-		ngx_snprintf(sub_location.data, sub_location.len,
-				"%V", &sub_prefix);
+		ngx_snprintf(sub_location.data, sub_location.len,"%V", &sub_prefix);
 
+		//token验证成功，代理真实服务器
 		ngx_http_request_t *sr;
 		ngx_int_t rc = ngx_http_subrequest(r, &sub_location, NULL, &sr, psr, NGX_HTTP_SUBREQUEST_IN_MEMORY);
 		if (rc != NGX_OK)
@@ -430,13 +439,13 @@ ngx_int_t mytest_subrequest_post_real_handler(ngx_http_request_t *r,void *data, 
 	{
 		ngx_log_stderr(0,"key: %s",myctx->key);
 	}
-	//取数据server_data，放入ctx
 	ngx_buf_t* pRecvBuf = &r->upstream->buffer;
 
 	ngx_str_t cjson;
 	cjson.len = pRecvBuf->last - pRecvBuf->pos;
 	cjson.data = pRecvBuf->pos;
 
+	//server_data将要发送给客户端的数据，放入上下文中
 	myctx->ser_data = ngx_palloc(r->pool,1024);
 	ngx_memzero(myctx->ser_data,1024);
 
@@ -457,10 +466,10 @@ ngx_int_t mytest_post_real_handler(ngx_http_request_t * r)
 {
 	if (r->headers_out.status != NGX_HTTP_OK)
 	{
-		ngx_log_stderr(0,"finalize..");
 		ngx_http_finalize_request(r, r->headers_out.status);
 		return NGX_ERROR;
 	}	
+	//将ser_data传给p，准备加密
 	ngx_http_mytest_ctx_t* myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
 	u_char *p = ngx_palloc(r->pool,ngx_strlen(myctx->ser_data)+1);
 	ngx_memzero(p,ngx_strlen(myctx->ser_data)+1);
@@ -503,11 +512,12 @@ ngx_int_t mytest_post_real_handler(ngx_http_request_t * r)
 
 	ngx_log_stderr(0,"b->pos: %s",b->pos);
 
+	//将b传给输出链
 	ngx_chain_t out;
 	out.buf = b;
 	out.next = NULL;
 
-	ngx_time_t *tp = ngx_timeofday();//起始时间
+	ngx_time_t *tp = ngx_timeofday();//终止时间
 	myctx->end = (ngx_msec_t)(tp->sec *1000 + tp->msec);
 	ngx_msec_t time = myctx->end - myctx->start;
 	ngx_log_stderr(0,"time: %d",time);
@@ -518,9 +528,9 @@ ngx_int_t mytest_post_real_handler(ngx_http_request_t * r)
 
 	r->connection->buffered |= NGX_HTTP_WRITE_BUFFERED;
 	ngx_int_t ret = ngx_http_send_header(r);	
-	ret = ngx_http_output_filter(r, &out);
+	ret = ngx_http_output_filter(r, &out);//发送响应包体
 	
-	ngx_http_finalize_request(r, ret);
+	ngx_http_finalize_request(r, ret);//手动释放请求，系统不会再调用
 
 	return 0;
 }

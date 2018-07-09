@@ -152,7 +152,7 @@ static ngx_int_t T(ngx_int_t num,ngx_int_t round){
 }
 
 static ngx_int_t w[60];
-
+//扩展秘钥
 static void extendKey(u_char *key) {
 	ngx_log_stderr(0,"extendKey()");
 	for(ngx_int_t i = 0;i < 4;i++)
@@ -166,7 +166,7 @@ static void extendKey(u_char *key) {
 		}
 	}
 }
-
+//轮密钥加，秘钥明文异或
 static void addRoundKey(ngx_int_t array[4][4],ngx_int_t round){
 	ngx_int_t warray[4];
 	for(ngx_int_t i=0;i<4;i++)

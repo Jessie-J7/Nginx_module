@@ -12,7 +12,7 @@ make
 然后将objs/nginx拷贝到编译后的安装目录PATH1/sbin/nginx
 cp –rfp objs/nginx  /usr/local/nginx/sbin/nginx
 4．替换conf
-第三方模块中的nginx.conf替换PATH1/conf/nginx.conf，更改nginx.conf中要访问的文件名，事先创建好的文件，nginx的宏不太会用，也可能是当前执行程序的用户权限问题。
+第三方模块中的nginx.conf替换PATH1/conf/nginx.conf，更改nginx.conf中要访问的文件名，事先创建好的文件，或者更改配置文件中的user，也可以在运行时自动创建，默认nobody
 5．运行nginx
 ./nginx  运行
 ./nginx –s reload 重置   重置slab共享缓存池不会清空
